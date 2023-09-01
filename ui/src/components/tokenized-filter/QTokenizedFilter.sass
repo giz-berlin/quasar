@@ -1,0 +1,68 @@
+.q-tokenized-filter
+  .q-field__control
+    cursor: text
+
+  .q-field__input
+    min-width: 50px !important
+    cursor: text
+
+    &--padding
+      padding-left: 4px
+
+  &__focus-target,
+  &__autocomplete-input
+    position: absolute
+    outline: 0 !important
+    width: 1px // Safari scrolls on top if 0
+    height: 1px // Safari scrolls on top if 0
+    padding: 0
+    border: 0
+    opacity: 0
+
+  .q-tokenized-filter-term-group
+    .q-tokenized-filter-term
+      &:not(:first-child)
+        .q-chip
+          margin-left: 0.05rem
+          border-top-left-radius: 0
+          border-bottom-left-radius: 0
+      &:not(:last-child)
+        .q-chip
+          margin-right: 0.05rem
+          border-top-right-radius: 0
+          border-bottom-right-radius: 0
+
+.q-tokenized-filter-term
+  .q-field__control
+    cursor: text
+
+  &.q-field--readonly
+    .q-field__control
+      cursor: default
+
+  .q-field__input
+    min-width: 15rem
+    cursor: text
+
+    &--padding
+      padding-left: 4px
+
+  &__focus-target,
+  &__autocomplete-input
+    position: absolute
+    outline: 0 !important
+    width: 1px // Safari scrolls on top if 0
+    height: 1px // Safari scrolls on top if 0
+    padding: 0
+    border: 0
+    opacity: 0
+
+  // .q-chip
+  //   &:not(:first-child)
+  //     margin-left: 0
+  //     border-top-left-radius: 0
+  //     border-bottom-left-radius: 0
+  //   &:not(:last-child)
+  //     margin-right: 0
+  //     border-top-right-radius: 0
+  //     border-bottom-right-radius: 0

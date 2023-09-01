@@ -1,4 +1,4 @@
-import { h, ref, computed, watch, onUpdated, onBeforeUnmount, nextTick, getCurrentInstance, onDeactivated, onActivated, onMounted } from 'vue'
+import { h, ref, computed, watch, onUpdated, onBeforeUnmount, nextTick, getCurrentInstance, onDeactivated, onActivated, onMounted, watchEffect } from 'vue'
 
 import QChip from '../chip/QChip.js'
 
@@ -10,6 +10,7 @@ import QMenu from '../menu/QMenu.js'
 
 import { useVirtualScroll, useVirtualScrollProps } from '../virtual-scroll/use-virtual-scroll.js'
 import useKeyComposition from '../../composables/private/use-key-composition.js'
+import { useFieldProps } from '../../composables/private/use-field.js'
 
 import { createComponent } from '../../utils/private/create.js'
 import { isDeepEqual } from '../../utils/is.js'
@@ -24,11 +25,12 @@ import useSplitAttrs from '../../composables/private/use-split-attrs.js'
 const JOINER = ','
 
 export default createComponent({
-  name: 'QSelect',
+  name: 'QTokenizedFilterTerm',
 
   inheritAttrs: false,
 
   props: {
+    ...useFieldProps,
     ...useVirtualScrollProps,
 
     modelValue: {
@@ -36,6 +38,8 @@ export default createComponent({
     },
 
     multiple: Boolean,
+
+    class: [ String, Array, Object ],
 
     displayValue: [ String, Number ],
     displayValueHtml: Boolean,
@@ -49,9 +53,13 @@ export default createComponent({
     optionLabel: [ Function, String ],
     optionDisable: [ Function, String ],
 
-    fillInput: Boolean,
-
+    disallowEmpty: Boolean,
     maxValues: [ Number, String ],
+
+    editable: {
+      type: Boolean,
+      default: () => true
+    },
 
     optionsDense: Boolean,
     optionsDark: {
@@ -80,6 +88,11 @@ export default createComponent({
 
     inputClass: [ Array, String, Object ],
     inputStyle: [ Array, String, Object ],
+
+    chipSize: {
+      type: String,
+      default: () => 'sm'
+    },
 
     tabindex: {
       type: [ String, Number ],
@@ -115,7 +128,6 @@ export default createComponent({
 
     const inputUid = ref(`f_${ uid() }`)
     const selectionUid = ref(`f_${ uid() }`)
-    const controlRef = ref(null)
     const selectionRef = ref(null)
     const inputRef = ref(null)
     const menuRef = ref(null)
@@ -126,11 +138,17 @@ export default createComponent({
     const optionIndex = ref(-1)
     const innerLoadingIndicator = ref(false)
     const innerLoading = ref(false)
-    const editable = ref(true)
-    const isDark = ref(false)
-    const holes = ref([])
+    const entryHoles = ref([])
 
     watch(menu, updateMenu)
+
+    const shouldBeDisabled = computed(() => {
+      return props.readonly === true || props.disable === true
+    })
+    // Close menu when disabling the component.
+    watchEffect(() => {
+      shouldBeDisabled.value === true && menu.value && closeMenu()
+    })
 
     // Lifecycle hooks.
     onUpdated(updateMenuPosition)
@@ -231,6 +249,9 @@ export default createComponent({
       }))
     })
 
+    const isEmpty = computed(() => selectedScope.value.length < 1)
+    const shouldShowInput = computed(() => menu.value || (props.disallowEmpty && isEmpty.value))
+
     const virtualScrollLength = computed(() => (
       Array.isArray(props.options)
         ? props.options.length
@@ -283,37 +304,46 @@ export default createComponent({
     }
 
     function getSelection () {
-      if (slots[ 'selected-item' ] !== void 0) {
-        return selectedScope.value.map(scope => slots[ 'selected-item' ](scope)).slice()
-      }
+      // if (slots[ 'selected-item' ] !== void 0) {
+      //   return selectedScope.value.map(scope => slots[ 'selected-item' ](scope)).slice()
+      // }
 
-      if (slots.selected !== void 0) {
-        return [].concat(slots.selected())
-      }
+      // if (slots.selected !== void 0) {
+      //   return [].concat(slots.selected())
+      // }
 
-      return h(QChip, {
-        ref: selectionRef,
-        removable: false,
-        clickable: true,
-        dense: props.dense,
-        square: true,
-        textColor: props.color,
-        id: selectionUid.value,
-        onClick (e) {
-          stopAndPrevent(e)
-          // When having selected an option with the enter key and thus closing the menu,
-          // the keyup of enter would trigger showing the menu again which is not desired.
-          if (didCloseWithEnter.value === true) {
-            didCloseWithEnter.value = false
-            return false
+      return h(
+        QChip,
+        {
+          ref: selectionRef,
+          dark: props.dark,
+          size: props.chipSize,
+          removable: false,
+          clickable: true,
+          disable: shouldBeDisabled.value,
+          dense: props.dense,
+          square: true,
+          textColor: props.color,
+          id: selectionUid.value,
+          onClick (e) {
+            stopAndPrevent(e)
+            // When having selected an option with the enter key and thus closing the menu,
+            // the keyup of enter would trigger showing the menu again which is not desired.
+            if (didCloseWithEnter.value === true) {
+              didCloseWithEnter.value = false
+              return false
+            }
+            showMenu()
           }
-          showMenu()
-        }
-      }, () => selectedScope.value.map((scope, idx, arr) => h('span', {
-        class: `ellipsis ${ idx < arr.length - 1 ? 'q-mr-xs' : '' }`,
-        // [ scope.html === true ? 'innerHTML' : 'textContent' ]: getOptionLabel.value(scope.opt)
-        textContent: getOptionLabel.value(scope.opt) + (idx < arr.length - 1 ? JOINER : '')
-      })))
+        },
+        slots[ 'selected-item' ] !== void 0
+          ? () => selectedScope.value.map(scope => slots[ 'selected-item' ](scope)).slice()
+          : () => selectedScope.value.map((scope, idx, arr) => h('span', {
+              class: `ellipsis ${ idx < arr.length - 1 ? 'q-mr-xs' : '' }`,
+              // [ scope.html === true ? 'innerHTML' : 'textContent' ]: getOptionLabel.value(scope.opt)
+              textContent: getOptionLabel.value(scope.opt) + (idx < arr.length - 1 ? JOINER : '')
+            }))
+      )
     }
 
     function removeRange (start, end) {
@@ -323,16 +353,15 @@ export default createComponent({
       if ((start > -1 || end > -1)) {
         if (props.multiple === true) {
           const model = props.modelValue.slice()
-          for (const hole of holes.value) {
+          for (const hole of entryHoles.value) {
             model.splice(hole, 0, undefined)
           }
           for (let idx = end; idx >= start; idx -= 1) {
             emit('remove', { idx, value: model[ idx ] })
           }
           model.splice(start, end - start + 1)
-          if (start > 0 && end < model.length && !holes.value.includes(start)) {
-            holes.value.push(start)
-            console.log(holes.value)
+          if (start > 0 && end < model.length && !entryHoles.value.includes(start)) {
+            entryHoles.value.push(start)
           }
           emit('update:modelValue', model.filter((value) => value))
         }
@@ -352,7 +381,7 @@ export default createComponent({
     }
 
     function toggleOption (opt, enterPressed) {
-      if (editable.value !== true || opt === void 0 || isOptionDisabled.value(opt) === true) {
+      if (props.editable !== true || opt === void 0 || isOptionDisabled.value(opt) === true) {
         return
       }
 
@@ -360,7 +389,7 @@ export default createComponent({
 
       if (props.multiple !== true) {
         updateInputValue(
-          props.fillInput === true ? getOptionLabel.value(opt) : '',
+          getOptionLabel.value(opt),
           true,
           true
         )
@@ -369,9 +398,7 @@ export default createComponent({
           didCloseWithEnter.value = true
         }
 
-        closeMenu()
-
-        inputRef.value !== null && inputRef.value.focus()
+        closeMenu(true)
 
         if (
           innerValue.value.length === 0
@@ -487,7 +514,7 @@ export default createComponent({
 
     function resetInputValue () {
       updateInputValue(
-        props.fillInput === true && innerValue.value.length !== 0
+        innerValue.value.length !== 0
           ? (props.multiple !== true ? getOptionLabel.value(innerValue.value[ 0 ]) || '' : joinOptions(innerValue.value))
           : '',
         true,
@@ -540,9 +567,9 @@ export default createComponent({
             nextTick(() => {
               innerLoading.value = false
 
-              if (editable.value === true) {
+              if (props.editable === true) {
                 if (keepClosed === true) {
-                  menu.value === true && closeMenu()
+                  menu.value === true && closeMenu(true)
                 }
                 else if (menu.value === true) {
                   updateMenu(true)
@@ -619,7 +646,7 @@ export default createComponent({
     const computedInputClass = computed(() => {
       let cls = 'q-field__input q-placeholder col'
 
-      if (!menu.value) {
+      if (!shouldShowInput.value) {
         cls += ' hidden'
       }
 
@@ -650,7 +677,7 @@ export default createComponent({
       if (isKeyCode(e, 27) === true && menu.value === true) {
         stop(e)
         // on ESC we need to close the dialog also
-        closeMenu()
+        closeMenu(true)
         resetInputValue()
       }
     }
@@ -685,7 +712,7 @@ export default createComponent({
             toggleOption(option)
           }
           else {
-            closeMenu()
+            closeMenu(true)
           }
 
           return true
@@ -731,14 +758,14 @@ export default createComponent({
 
       // tab
       if (e.keyCode === 9 && tabShouldSelect === false) {
-        closeMenu()
+        closeMenu(true)
         return
       }
 
       if (
         e.target === void 0
         || e.target.id !== inputUid.value
-        || editable.value !== true
+        || props.editable !== true
       ) { return }
 
       // down
@@ -827,13 +854,24 @@ export default createComponent({
       }
     }
 
+    function handleInputFocus (e) {
+      selectInputText(e)
+      if (menu.value === false) {
+        showMenu(e)
+      }
+    }
+
+    const previousSelection = ref(-1)
     function inputSelectionChangeHandler (e) {
+      console.log(e)
       const el = document.activeElement
       const target = inputRef.value !== void 0 && inputRef.value
       const selection = window.getSelection()
 
-      if (selection.type === 'Caret' && target && el.id === inputUid.value) {
-        filter(getSegmentValueFromInput(inputValue.value))
+      if (target && selection.type === 'Caret' && target && el.id === inputUid.value && previousSelection.value !== target.selectionStart) {
+        previousSelection.value = target.selectionStart
+        stopAndPrevent(e)
+        // filter(getSegmentValueFromInput(inputValue.value))
       }
     }
 
@@ -848,7 +886,7 @@ export default createComponent({
         onKeydown: onInputKeydown,
         onKeyup: onInputAutocomplete,
         onKeypress: onInputKeypress,
-        onFocus: selectInputText
+        onFocus: handleInputFocus
       }
 
       evt.onCompositionstart = evt.onCompositionupdate = evt.onCompositionend = onComposition
@@ -886,44 +924,16 @@ export default createComponent({
     + (props.popupContentClass ? ' ' + props.popupContentClass : '')
     )
 
-    const isOptionsDark = computed(() => (
-      props.optionsDark === null
-        ? isDark.value
-        : props.optionsDark
-    ))
-
     const listboxAttrs = computed(() => ({
       id: `${ inputUid.value }_lb`,
       role: 'listbox',
       'aria-multiselectable': props.multiple === true ? 'true' : 'false'
     }))
 
-    function onControlFocusin (e) {
-      if (focusoutTimer !== null) {
-        clearTimeout(focusoutTimer)
-        focusoutTimer = null
-      }
-
-      if (editable.value === true && menu.value === false) {
-        menu.value = true
-        emit('focus', e)
-      }
-    }
-
     function onControlFocusout (e, then) {
       focusoutTimer !== null && clearTimeout(focusoutTimer)
       focusoutTimer = setTimeout(() => {
         focusoutTimer = null
-
-        if (
-          document.hasFocus() === true && (
-            hasPopupOpen.value === true
-            || controlRef.value === null
-            || controlRef.value.contains(document.activeElement) !== false
-          )
-        ) {
-          return
-        }
 
         if (menu.value === true) {
           menu.value = false
@@ -934,32 +944,40 @@ export default createComponent({
       })
     }
 
-    function onMenuBeforeShow (e) {
-      e !== void 0 && stop(e)
-      holes.value = []
+    function onMenuBeforeShow () {
+      entryHoles.value = []
       resetInputValue()
-      emit('popupShow', e)
+      emit('popupShow')
       hasPopupOpen.value = true
-      onControlFocusin(e)
+      if (focusoutTimer !== null) {
+        clearTimeout(focusoutTimer)
+        focusoutTimer = null
+      }
+
+      if (props.editable === true) {
+        emit('focus')
+      }
     }
 
-    function onMenuBeforeHide (e) {
-      e !== void 0 && stop(e)
-      emit('popupHide', e)
+    function onMenuBeforeHide () {
+      emit('popupHide')
       hasPopupOpen.value = false
-      onControlFocusout(e)
-      focusSelection()
+      onControlFocusout()
     }
 
     function onMenuShow () {
       setVirtualScrollSize()
     }
 
-    function closeMenu () {
+    function closeMenu (shouldKeepFocus = false) {
       optionIndex.value = -1
 
       if (menu.value === true) {
         menu.value = false
+        setInputValue('')
+        if (shouldKeepFocus) {
+          focusSelection()
+        }
       }
 
       if (menu.value === false) {
@@ -977,7 +995,7 @@ export default createComponent({
     }
 
     function showMenu (e) {
-      if (editable.value !== true) {
+      if (props.editable !== true) {
         return
       }
 
@@ -1017,7 +1035,7 @@ export default createComponent({
           disable,
           tabindex: -1,
           dense: props.optionsDense,
-          dark: isOptionsDark.value,
+          dark: props.optionsDark,
           role: 'option',
           id: `${ inputUid.value }_${ index }`,
           onClick: () => { toggleOption(opt) }
@@ -1091,7 +1109,7 @@ export default createComponent({
 
     function getMenu () {
       if (
-        editable.value !== false && (
+        props.editable !== false && (
           noOptions.value !== true
           || slots[ 'no-option' ] !== void 0
         )
@@ -1106,7 +1124,7 @@ export default createComponent({
           anchor: props.menuAnchor,
           self: props.menuSelf,
           offset: props.menuOffset,
-          dark: isOptionsDark.value,
+          dark: props.optionsDark,
           noParentEvent: true,
           noRefocus: true,
           noFocus: true,
@@ -1171,7 +1189,7 @@ export default createComponent({
           setOptionIndex(index)
           scrollTo(index)
 
-          if (skipInputValue !== true && props.fillInput === true) {
+          if (skipInputValue !== true) {
             setInputValue(index >= 0
               ? getOptionLabel.value(props.options[ index ])
               : defaultInputValue
@@ -1181,10 +1199,27 @@ export default createComponent({
       }
     }
 
+    // Expose functions
+
+    Object.assign(proxy, {
+      blur: closeMenu,
+      focus: showMenu,
+      inputRef,
+      menuRef
+    })
+
     // Overall layout
 
     function getContent () {
       const children = []
+
+      if (props.disallowEmpty && isEmpty.value) {
+        // In this case always show the input field.
+        children.push(getMenu())
+        children.push(getInput())
+        return children
+      }
+
       menu.value === false && children.push(getSelection())
 
       children.push(getMenu())
@@ -1193,11 +1228,17 @@ export default createComponent({
       return children
     }
 
+    const computedFilterTermClass = computed(() => {
+      const cls = [ 'q-tokenized-filter-term' ]
+      return props.class === void 0
+        ? cls
+        : [ cls, props.class ]
+    })
+
     return function renderFilterTerm () {
       return h('div',
         {
-          ref: controlRef,
-          class: 'q-tokenized-filter-term'
+          class: computedFilterTermClass.value
         },
         getContent()
       )
